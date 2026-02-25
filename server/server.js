@@ -35,8 +35,6 @@ function checkWinner(board) {
 
 io.on("connection", (socket) => {
 
-  console.log("Connected:", socket.id);
-
   onlinePlayers++;
   io.emit("onlineCount", onlinePlayers);
 
@@ -48,6 +46,8 @@ io.on("connection", (socket) => {
     if (queue.find(p => p.id === socket.id)) return;
 
     queue.push(socket);
+
+    socket.emit("waiting");
 
     if (queue.length >= 2) {
 
@@ -64,6 +64,7 @@ io.on("connection", (socket) => {
         board: Array(9).fill(null),
         turn: "X",
         score: { X: 0, O: 0 },
+        streak: { X: 0, O: 0 },
         rematchVotes: {}
       };
 
@@ -74,60 +75,53 @@ io.on("connection", (socket) => {
       io.to(player2.id).emit("matchFound", { roomId, symbol: "O" });
 
       io.to(roomId).emit("matchStarted");
-      io.to(roomId).emit("systemMessage", "Match Started 🎮");
       io.to(roomId).emit("gameState", rooms[roomId]);
-    } else {
-      socket.emit("waiting");
     }
   });
 
   // =====================
   // GAME MOVE
   // =====================
-socket.on("makeMove", ({ roomId, index }) => {
+  socket.on("makeMove", ({ roomId, index }) => {
 
-  const room = rooms[roomId];
-  if (!room) return;
+    const room = rooms[roomId];
+    if (!room) return;
 
-  const player = room.players.find(p => p.id === socket.id);
-  if (!player) return;
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) return;
 
-  if (room.board[index] !== null) return;
-  if (room.turn !== player.symbol) return;
+    if (room.board[index] !== null) return;
+    if (room.turn !== player.symbol) return;
 
-  room.board[index] = player.symbol;
-  room.turn = room.turn === "X" ? "O" : "X";
+    room.board[index] = player.symbol;
+    room.turn = room.turn === "X" ? "O" : "X";
 
-  const winner = checkWinner(room.board);
+    const winner = checkWinner(room.board);
 
-  if (winner) {
+    if (winner) {
 
-    if (winner !== "draw") {
-      room.score[winner]++;  // Update score
+      if (winner !== "draw") {
+        room.score[winner]++;
+        room.streak[winner]++;
+        room.streak[winner === "X" ? "O" : "X"] = 0;
+      } else {
+        room.streak.X = 0;
+        room.streak.O = 0;
+      }
+
+      io.to(roomId).emit("gameState", room);
+      io.to(roomId).emit("gameOver", winner);
+
+      return;
     }
 
-    // 🔥 IMPORTANT: Emit updated state FIRST
     io.to(roomId).emit("gameState", room);
+  });
 
-    io.to(roomId).emit("gameOver", winner);
-
-    io.to(roomId).emit(
-      "systemMessage",
-      winner === "draw"
-        ? "Game Draw 🤝"
-        : `${winner} Wins 🏆`
-    );
-
-    return;
-  }
-
-  io.to(roomId).emit("gameState", room);
-});
   // =====================
   // CHAT
   // =====================
   socket.on("sendMessage", ({ roomId, message, symbol }) => {
-
     if (!rooms[roomId]) return;
 
     io.to(roomId).emit("receiveMessage", {
@@ -138,7 +132,7 @@ socket.on("makeMove", ({ roomId, index }) => {
   });
 
   // =====================
-  // REMATCH (FIXED)
+  // REMATCH
   // =====================
   socket.on("rematch", ({ roomId }) => {
 
@@ -149,25 +143,17 @@ socket.on("makeMove", ({ roomId, index }) => {
 
     room.rematchVotes[socket.id] = true;
 
-    io.to(roomId).emit("systemMessage", "Rematch vote received 🔄");
-
-    const voteCount = Object.keys(room.rematchVotes).length;
-
-    if (voteCount === 2) {
+    if (Object.keys(room.rematchVotes).length === 2) {
 
       room.board = Array(9).fill(null);
       room.turn = "X";
       room.rematchVotes = {};
 
       io.to(roomId).emit("rematchStarted");
-      io.to(roomId).emit("systemMessage", "Rematch Started 🎮");
       io.to(roomId).emit("gameState", room);
     }
   });
 
-  // =====================
-  // DISCONNECT
-  // =====================
   socket.on("disconnect", () => {
 
     onlinePlayers--;
@@ -176,15 +162,11 @@ socket.on("makeMove", ({ roomId, index }) => {
     queue = queue.filter(p => p.id !== socket.id);
 
     for (let roomId in rooms) {
-      const room = rooms[roomId];
-
-      if (room.players.find(p => p.id === socket.id)) {
-        io.to(roomId).emit("systemMessage", "Opponent Disconnected ❌");
+      if (rooms[roomId].players.find(p => p.id === socket.id)) {
         delete rooms[roomId];
       }
     }
   });
-
 });
 
 server.listen(5000, () => {

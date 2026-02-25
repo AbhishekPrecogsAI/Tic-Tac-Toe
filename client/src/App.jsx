@@ -13,6 +13,8 @@ function App() {
   const [turn, setTurn] = useState("X");
   const [status, setStatus] = useState("Click Play to Find Match");
   const [score, setScore] = useState({ X: 0, O: 0 });
+  const [streak, setStreak] = useState({ X: 0, O: 0 });
+  const [highlight, setHighlight] = useState(null);
   const [gameOver, setGameOver] = useState(false);
   const [winner, setWinner] = useState(null);
   const [rematchClicked, setRematchClicked] = useState(false);
@@ -21,12 +23,14 @@ function App() {
   const [input, setInput] = useState("");
   const chatRef = useRef();
 
+  const winAudio = new Audio("/win.mp3");
+
   useEffect(() => {
 
     socket.on("onlineCount", setOnline);
 
     socket.on("waiting", () => {
-      setStatus("Waiting for opponent...");
+      setStatus("⏳ Waiting for opponent...");
     });
 
     socket.on("matchFound", ({ roomId, symbol }) => {
@@ -35,34 +39,36 @@ function App() {
     });
 
     socket.on("matchStarted", () => {
-      setStatus("Match Started 🎮");
+      setStatus("🎮 Match Started");
     });
 
     socket.on("gameState", (room) => {
       setBoard(room.board);
       setTurn(room.turn);
       setScore(room.score);
+      setStreak(room.streak);
     });
 
     socket.on("gameOver", (result) => {
       setGameOver(true);
       setWinner(result);
-      setStatus(result === "draw" ? "Draw!" : `${result} Wins!`);
+
+      if (result !== "draw") {
+        setHighlight(result);
+        winAudio.play();
+        setTimeout(() => setHighlight(null), 1500);
+      }
     });
 
     socket.on("receiveMessage", (msg) => {
       setMessages(prev => [...prev, msg]);
     });
 
-    socket.on("systemMessage", (msg) => {
-      setMessages(prev => [...prev, { sender: "System", message: msg }]);
-    });
-
     socket.on("rematchStarted", () => {
       setGameOver(false);
       setWinner(null);
       setRematchClicked(false);
-      setStatus("Rematch Started 🔄");
+      setStatus("🔄 Rematch Started");
     });
 
     return () => socket.off();
@@ -91,7 +97,7 @@ function App() {
     if (!rematchClicked) {
       socket.emit("rematch", { roomId });
       setRematchClicked(true);
-      setStatus("Waiting for opponent to accept rematch...");
+      setStatus("Waiting for opponent...");
     }
   };
 
@@ -100,7 +106,14 @@ function App() {
       <h1>Realtime Tic Tac Toe</h1>
       <h3>Online Players: {online}</h3>
 
-      {!roomId && <button onClick={findMatch}>Play</button>}
+      {!roomId && (
+        <button
+          disabled={status.includes("Waiting")}
+          onClick={findMatch}
+        >
+          {status.includes("Waiting") ? "Searching..." : "Play"}
+        </button>
+      )}
 
       {symbol && (
         <>
@@ -108,8 +121,15 @@ function App() {
           <h3>{status}</h3>
 
           <div className="scoreboard">
-            <div>X: {score.X}</div>
-            <div>O: {score.O}</div>
+            <div className={`score ${highlight === "X" ? "winner" : ""}`}>
+              X: {score.X}
+              <div className="streak">🔥 {streak.X}</div>
+            </div>
+
+            <div className={`score ${highlight === "O" ? "winner" : ""}`}>
+              O: {score.O}
+              <div className="streak">🔥 {streak.O}</div>
+            </div>
           </div>
 
           <div className="game-chat">
