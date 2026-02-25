@@ -109,3 +109,99 @@ body {
   margin-top: 15px;
   font-size: 1.2rem;
 }
+
+.game-chat {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  margin-top: 20px;
+}
+
+.chat-box {
+  width: 250px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  text-align: left;
+  font-size: 0.9rem;
+  margin-bottom: 10px;
+}
+
+.message {
+  margin-bottom: 5px;
+}
+
+.chat-input {
+  display: flex;
+}
+
+.chat-input input {
+  flex: 1;
+  padding: 5px;
+}
+
+.chat-input button {
+  padding: 5px 10px;
+}
+
+.game-wrapper {
+  position: relative;
+}
+
+.board.disabled {
+  pointer-events: none;
+  opacity: 0.4;
+}
+
+.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.8);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  border-radius: 12px;
+}
+
+.chat-box {
+  width: 280px;
+  height: 350px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  text-align: left;
+  padding-right: 5px;
+}
+
+.message {
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+}
+
+.chat-input {
+  display: flex;
+  gap: 5px;
+}
+
+.chat-input input {
+  flex: 1;
+  padding: 6px;
+}

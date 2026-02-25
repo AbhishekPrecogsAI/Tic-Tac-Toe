@@ -1,103 +1,11 @@
-// import React, { useEffect, useState } from "react";
-// import { io } from "socket.io-client";
-// import "./App.css";
-
-// const socket = io("http://localhost:5000");
-
-// function App() {
-//   const [roomId, setRoomId] = useState("");
-//   const [joined, setJoined] = useState(false);
-//   const [symbol, setSymbol] = useState(null);
-//   const [board, setBoard] = useState(Array(9).fill(null));
-//   const [turn, setTurn] = useState("X");
-//   const [message, setMessage] = useState("");
-
-//   useEffect(() => {
-//     socket.on("playerAssigned", (sym) => {
-//       setSymbol(sym);
-//       setJoined(true);
-//     });
-
-//     socket.on("gameState", (room) => {
-//       setBoard(room.board);
-//       setTurn(room.turn);
-//     });
-
-//     socket.on("gameOver", (winner) => {
-//       if (winner === "draw") {
-//         setMessage("Draw!");
-//       } else {
-//         setMessage(`${winner} Wins!`);
-//       }
-
-//       setTimeout(() => {
-//         setMessage("");
-//       }, 2000);
-//     });
-
-//     socket.on("roomFull", () => {
-//       alert("Room is full!");
-//     });
-
-//     return () => {
-//       socket.off();
-//     };
-//   }, []);
-
-//   const joinRoom = () => {
-//     if (roomId.trim()) {
-//       socket.emit("joinRoom", roomId);
-//     }
-//   };
-
-//   const handleClick = (index) => {
-//     socket.emit("makeMove", { roomId, index });
-//   };
-
-//   if (!joined) {
-//     return (
-//       <div className="container">
-//         <h1>Realtime Tic Tac Toe</h1>
-//         <input
-//           placeholder="Enter Room ID"
-//           value={roomId}
-//           onChange={(e) => setRoomId(e.target.value)}
-//         />
-//         <button onClick={joinRoom}>Join Room</button>
-//       </div>
-//     );
-//   }
-
-//   return (
-//     <div className="container">
-//       <h2>You are: {symbol}</h2>
-//       <h3>Turn: {turn}</h3>
-//       <h3>{message}</h3>
-
-//       <div className="board">
-//         {board.map((cell, i) => (
-//           <div
-//             key={i}
-//             className="cell"
-//             onClick={() => handleClick(i)}
-//           >
-//             {cell}
-//           </div>
-//         ))}
-//       </div>
-//     </div>
-//   );
-// }
-
-// export default App;
-
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import "./App.css";
 
 const socket = io("http://localhost:5000");
 
 function App() {
+
   const [online, setOnline] = useState(0);
   const [roomId, setRoomId] = useState(null);
   const [symbol, setSymbol] = useState(null);
@@ -106,6 +14,12 @@ function App() {
   const [status, setStatus] = useState("Click Play to Find Match");
   const [score, setScore] = useState({ X: 0, O: 0 });
   const [gameOver, setGameOver] = useState(false);
+  const [winner, setWinner] = useState(null);
+  const [rematchClicked, setRematchClicked] = useState(false);
+
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const chatRef = useRef();
 
   useEffect(() => {
 
@@ -118,7 +32,10 @@ function App() {
     socket.on("matchFound", ({ roomId, symbol }) => {
       setRoomId(roomId);
       setSymbol(symbol);
-      setStatus("Match Found!");
+    });
+
+    socket.on("matchStarted", () => {
+      setStatus("Match Started 🎮");
     });
 
     socket.on("gameState", (room) => {
@@ -127,57 +44,67 @@ function App() {
       setScore(room.score);
     });
 
-    socket.on("gameOver", (winner) => {
+    socket.on("gameOver", (result) => {
       setGameOver(true);
-      if (winner === "draw") {
-        setStatus("Draw!");
-      } else {
-        setStatus(`${winner} Wins!`);
-      }
+      setWinner(result);
+      setStatus(result === "draw" ? "Draw!" : `${result} Wins!`);
+    });
+
+    socket.on("receiveMessage", (msg) => {
+      setMessages(prev => [...prev, msg]);
+    });
+
+    socket.on("systemMessage", (msg) => {
+      setMessages(prev => [...prev, { sender: "System", message: msg }]);
     });
 
     socket.on("rematchStarted", () => {
       setGameOver(false);
-      setStatus("Rematch Started!");
+      setWinner(null);
+      setRematchClicked(false);
+      setStatus("Rematch Started 🔄");
     });
 
     return () => socket.off();
   }, []);
 
-  const findMatch = () => {
-    if (!roomId) {
-      socket.emit("findMatch");
-    }
-  };
+  useEffect(() => {
+    chatRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const findMatch = () => socket.emit("findMatch");
 
   const move = (i) => {
-    if (!gameOver && roomId) {
+    if (!gameOver && board[i] == null) {
       socket.emit("makeMove", { roomId, index: i });
     }
   };
 
+  const sendMessage = () => {
+    if (input.trim()) {
+      socket.emit("sendMessage", { roomId, message: input, symbol });
+      setInput("");
+    }
+  };
+
   const rematch = () => {
-    socket.emit("rematch", { roomId });
+    if (!rematchClicked) {
+      socket.emit("rematch", { roomId });
+      setRematchClicked(true);
+      setStatus("Waiting for opponent to accept rematch...");
+    }
   };
 
   return (
     <div className="container">
-      <h1 className="title">Realtime Tic Tac Toe</h1>
+      <h1>Realtime Tic Tac Toe</h1>
       <h3>Online Players: {online}</h3>
 
-      {!roomId && (
-        <button
-          className="btn"
-          onClick={findMatch}
-        >
-          Play
-        </button>
-      )}
+      {!roomId && <button onClick={findMatch}>Play</button>}
 
       {symbol && (
         <>
           <h2>You are: {symbol}</h2>
-          <h3>Turn: {turn}</h3>
           <h3>{status}</h3>
 
           <div className="scoreboard">
@@ -185,23 +112,48 @@ function App() {
             <div>O: {score.O}</div>
           </div>
 
-          <div className="board">
-            {board.map((cell, i) => (
-              <div
-                key={i}
-                className={`cell ${cell ? "filled" : ""}`}
-                onClick={() => move(i)}
-              >
-                {cell}
-              </div>
-            ))}
-          </div>
+          <div className="game-chat">
 
-          {gameOver && (
-            <button className="btn rematch" onClick={rematch}>
-              Rematch
-            </button>
-          )}
+            <div className="game-wrapper">
+              <div className={`board ${gameOver ? "disabled" : ""}`}>
+                {board.map((cell, i) => (
+                  <div key={i} className="cell" onClick={() => move(i)}>
+                    {cell}
+                  </div>
+                ))}
+              </div>
+
+              {gameOver && (
+                <div className="overlay">
+                  <h2>{winner === "draw" ? "Draw!" : `${winner} Wins!`}</h2>
+                  <button disabled={rematchClicked} onClick={rematch}>
+                    {rematchClicked ? "Waiting..." : "Rematch"}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="chat-box">
+              <div className="messages">
+                {messages.map((msg, i) => (
+                  <div key={i}>
+                    <strong>{msg.sender}:</strong> {msg.message}
+                  </div>
+                ))}
+                <div ref={chatRef}></div>
+              </div>
+
+              <div className="chat-input">
+                <input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+                />
+                <button onClick={sendMessage}>Send</button>
+              </div>
+            </div>
+
+          </div>
         </>
       )}
     </div>
