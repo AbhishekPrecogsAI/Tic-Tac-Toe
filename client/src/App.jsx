@@ -4,8 +4,8 @@ import { io } from "socket.io-client";
 const socket = io("https://tic-tac-toe-04fr.onrender.com");
 
 const PLAYER_CONFIG = {
-  X: { avatar: null, avatarImg: "/player-x.jpeg", label: "Player X", colorClass: "x" },
-  O: { avatar: null, avatarImg: "/player-o.jpeg", label: "Player O", colorClass: "o" },
+  X: { avatar: null, avatarImg: "player-x.jpeg", label: "Player X", colorClass: "x" },
+  O: { avatar: null, avatarImg: "player-o.jpeg", label: "Player O", colorClass: "o" },
 };
 
 // Helper: render avatar as <img> if avatarImg is set, else fallback to emoji
@@ -29,6 +29,7 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const chatRef = useRef();
+  const winAudio = new Audio("/win.mp3");
 
   useEffect(() => {
     socket.on("onlineCount", setOnline);
@@ -43,6 +44,7 @@ function App() {
       setGameOver(true); setWinner(result);
       if (result !== "draw") {
         setHighlight(result);
+        winAudio.play();
         setTimeout(() => setHighlight(null), 1500);
       }
     });
@@ -101,7 +103,7 @@ function App() {
           display: flex;
           flex-direction: column;
           align-items: center;
-          padding: 12px 12px 12px;
+          padding: 8px 10px 8px;
           overflow: hidden;
           position: relative;
         }
@@ -168,12 +170,12 @@ function App() {
         .ttt-header {
           text-align: center;
           flex-shrink: 0;
-          margin-bottom: 8px;
+          margin-bottom: 6px;
           position: relative; z-index: 1;
         }
 
         .ttt-header h1 {
-          font-size: clamp(18px, 4vw, 28px);
+          font-size: clamp(15px, 4vw, 28px);
           font-weight: 800;
           letter-spacing: -0.5px;
           background: linear-gradient(135deg, #fff 0%, rgba(255,255,255,0.45) 100%);
@@ -184,11 +186,11 @@ function App() {
         .online-badge {
           display: inline-flex;
           align-items: center;
-          gap: 7px;
+          gap: 6px;
           font-family: 'DM Mono', monospace;
-          font-size: 11px;
+          font-size: 10px;
           color: var(--muted);
-          margin-top: 4px;
+          margin-top: 2px;
         }
 
         .online-dot {
@@ -226,10 +228,10 @@ function App() {
           width: 100%;
           max-width: 900px;
           flex: 1;
-          min-height: 0;           /* critical for flex children */
+          min-height: 0;
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 6px;
           position: relative; z-index: 1;
           overflow: hidden;
         }
@@ -238,7 +240,7 @@ function App() {
         .players-row {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 8px;
+          gap: 6px;
           flex-shrink: 0;
         }
 
@@ -246,10 +248,10 @@ function App() {
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: var(--radius);
-          padding: 10px 12px;
+          padding: 7px 10px;
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 8px;
           transition: all 0.3s;
           position: relative;
           overflow: hidden;
@@ -269,11 +271,12 @@ function App() {
         .player-card.active-o::after { background: linear-gradient(135deg, rgba(255,77,141,0.08) 0%, transparent 60%); opacity: 1; }
 
         .p-avatar {
-          width: 34px; height: 34px;
-          border-radius: 10px;
+          width: 30px; height: 30px;
+          border-radius: 8px;
           background: var(--surface2);
           display: flex; align-items: center; justify-content: center;
-          font-size: 18px; flex-shrink: 0;
+          font-size: 16px; flex-shrink: 0;
+          overflow: hidden;
         }
 
         .p-avatar-img, .msg-av-img {
@@ -294,7 +297,7 @@ function App() {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 10px;
+          gap: 8px;
           flex-shrink: 0;
         }
 
@@ -302,9 +305,9 @@ function App() {
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: 50px;
-          padding: 8px 16px;
+          padding: 5px 12px;
           font-family: 'DM Mono', monospace;
-          font-size: 12px;
+          font-size: 11px;
           color: var(--muted);
           white-space: nowrap;
         }
@@ -318,8 +321,8 @@ function App() {
         .score-chip {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: 12px;
-          padding: 8px 14px;
+          border-radius: 10px;
+          padding: 5px 10px;
           text-align: center;
           transition: all 0.3s;
           font-family: 'DM Mono', monospace;
@@ -334,44 +337,45 @@ function App() {
         .sc-val.o { color: var(--o); }
         .sc-streak { font-size: 10px; color: #f97316; }
 
-        /* ── MAIN GRID: fills all remaining height ── */
+        /* ── MAIN GRID ── */
+        /* Mobile: two equal rows — board top half, chat bottom half */
         .main-grid {
           flex: 1;
           min-height: 0;
           display: grid;
-          gap: 10px;
-          /* Mobile: single column — board natural size, chat fixed below */
+          gap: 8px;
           grid-template-columns: 1fr;
-          grid-template-rows: auto 1fr;
+          grid-template-rows: 1fr 1fr;
         }
 
-        /* Desktop: two equal columns, both stretch to same height */
+        /* Desktop: two equal columns side by side */
         @media (min-width: 600px) {
           .main-grid {
             grid-template-columns: 1fr 1fr;
-            grid-template-rows: auto;
+            grid-template-rows: 1fr;
             align-items: start;
-            justify-content: center;
           }
         }
 
-        /* ── BOARD: always square ── */
+        /* ── BOARD ── */
+        /* Mobile: fills its half-height row, square via aspect-ratio on inner grid */
         .board-wrap {
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: 20px;
-          padding: 10px;
+          padding: 8px;
           position: relative;
-          aspect-ratio: 1 / 1;
           width: 100%;
-          max-width: 380px;
-          justify-self: center;
+          height: 100%;
+          min-height: 0;
         }
 
+        /* Desktop: square */
         @media (min-width: 600px) {
           .board-wrap {
-            max-width: 100%;
-            justify-self: stretch;
+            aspect-ratio: 1 / 1;
+            height: auto;
+            width: 100%;
           }
         }
 
@@ -454,7 +458,7 @@ function App() {
         .rematch-btn:active { transform: scale(0.96); }
         .rematch-btn:disabled { background: var(--surface2); box-shadow: none; cursor: default; }
 
-        /* ── CHAT: same square shape as board ── */
+        /* ── CHAT ── */
         .chat-wrap {
           background: var(--surface);
           border: 1px solid var(--border);
@@ -462,16 +466,16 @@ function App() {
           display: flex;
           flex-direction: column;
           overflow: hidden;
-          min-height: 200px;
+          width: 100%;
+          height: 100%;
+          min-height: 0;
         }
 
-        /* Desktop: force same aspect-ratio as board so they match */
+        /* Desktop: square matching board */
         @media (min-width: 600px) {
-          .main-grid { align-items: start; }
           .chat-wrap {
             aspect-ratio: 1 / 1;
-            width: 100%;
-            min-height: 0;
+            height: auto;
           }
         }
 
@@ -555,10 +559,11 @@ function App() {
         }
 
         .chat-input-row {
-          padding: 10px 12px;
+          padding: 8px 10px;
           border-top: 1px solid var(--border);
           display: flex; gap: 8px;
           align-items: center;
+          flex-shrink: 0;
         }
 
         .chat-input {
@@ -566,7 +571,7 @@ function App() {
           background: var(--surface2);
           border: 1px solid var(--border);
           border-radius: 50px;
-          padding: 10px 16px;
+          padding: 8px 14px;
           color: var(--text);
           font-family: 'Syne', sans-serif;
           font-size: 13px;
