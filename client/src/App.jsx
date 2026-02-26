@@ -1,264 +1,17 @@
-// import React, { useEffect, useRef, useState } from "react";
-// import { io } from "socket.io-client";
-
-// const socket = io("https://tic-tac-toe-04fr.onrender.com");
-
-// function App() {
-
-//   const [online, setOnline] = useState(0);
-//   const [roomId, setRoomId] = useState(null);
-//   const [symbol, setSymbol] = useState(null);
-//   const [board, setBoard] = useState(Array(9).fill(null));
-//   const [turn, setTurn] = useState("X");
-//   const [status, setStatus] = useState("Click Play to Find Match");
-//   const [score, setScore] = useState({ X: 0, O: 0 });
-//   const [streak, setStreak] = useState({ X: 0, O: 0 });
-//   const [highlight, setHighlight] = useState(null);
-//   const [gameOver, setGameOver] = useState(false);
-//   const [winner, setWinner] = useState(null);
-//   const [rematchClicked, setRematchClicked] = useState(false);
-
-//   const [messages, setMessages] = useState([]);
-//   const [input, setInput] = useState("");
-//   const chatRef = useRef();
-
-//   const winAudio = new Audio("/win.mp3");
-
-//   const playerStyles = {
-//     X: {
-//       color: "text-sky-400",
-//       glow: "shadow-[0_0_25px_rgba(56,189,248,0.6)]",
-//       ring: "ring-sky-400",
-//       avatar: "🧑‍🚀"
-//     },
-//     O: {
-//       color: "text-pink-400",
-//       glow: "shadow-[0_0_25px_rgba(244,114,182,0.6)]",
-//       ring: "ring-pink-400",
-//       avatar: "🤖"
-//     }
-//   };
-
-//   useEffect(() => {
-
-//     socket.on("onlineCount", setOnline);
-
-//     socket.on("waiting", () => {
-//       setStatus("⏳ Waiting for opponent...");
-//     });
-
-//     socket.on("matchFound", ({ roomId, symbol }) => {
-//       setRoomId(roomId);
-//       setSymbol(symbol);
-//     });
-
-//     socket.on("matchStarted", () => {
-//       setStatus("🎮 Match Started");
-//     });
-
-//     socket.on("gameState", (room) => {
-//       setBoard(room.board);
-//       setTurn(room.turn);
-//       setScore(room.score);
-//       setStreak(room.streak);
-//     });
-
-//     socket.on("gameOver", (result) => {
-//       setGameOver(true);
-//       setWinner(result);
-
-//       if (result !== "draw") {
-//         setHighlight(result);
-//         winAudio.play();
-//         setTimeout(() => setHighlight(null), 1500);
-//       }
-//     });
-
-//     socket.on("receiveMessage", (msg) => {
-//       setMessages(prev => [...prev, msg]);
-//     });
-
-//     socket.on("rematchStarted", () => {
-//       setGameOver(false);
-//       setWinner(null);
-//       setRematchClicked(false);
-//       setStatus("🔄 Rematch Started");
-//       setBoard(Array(9).fill(null));
-//     });
-
-//     return () => socket.off();
-//   }, []);
-
-//   useEffect(() => {
-//     chatRef.current?.scrollIntoView({ behavior: "smooth" });
-//   }, [messages]);
-
-//   const findMatch = () => socket.emit("findMatch");
-
-//   const move = (i) => {
-//     if (!gameOver && board[i] == null) {
-//       socket.emit("makeMove", { roomId, index: i });
-//     }
-//   };
-
-//   const sendMessage = () => {
-//     if (input.trim()) {
-//       socket.emit("sendMessage", { roomId, message: input, symbol });
-//       setInput("");
-//     }
-//   };
-
-//   const rematch = () => {
-//     if (!rematchClicked) {
-//       socket.emit("rematch", { roomId });
-//       setRematchClicked(true);
-//       setStatus("Waiting for opponent...");
-//     }
-//   };
-
-//   return (
-//     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-slate-800 text-white flex flex-col items-center p-4">
-
-//       {/* HEADER */}
-//       <div className="text-center space-y-2 mb-6">
-//         <h1 className="text-3xl md:text-4xl font-bold">Realtime Tic Tac Toe</h1>
-//         <p className="text-slate-300">Online Players: {online}</p>
-//       </div>
-
-//       {!roomId && (
-//         <button
-//           disabled={status.includes("Waiting")}
-//           onClick={findMatch}
-//           className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 transition shadow-lg disabled:bg-slate-600"
-//         >
-//           {status.includes("Waiting") ? "Searching..." : "Play Match"}
-//         </button>
-//       )}
-
-//       {symbol && (
-//         <div className="w-full max-w-6xl">
-
-//           {/* PLAYER AVATARS */}
-//           <div className="flex justify-center gap-6 mb-6 flex-wrap">
-//             {["X","O"].map(p => {
-//               const isTurn = turn === p;
-//               return (
-//                 <div key={p}
-//                   className={`flex items-center gap-3 px-5 py-3 rounded-2xl bg-white/5 backdrop-blur-md border border-white/10
-//                   ${isTurn ? `ring-2 ${playerStyles[p].ring} scale-105` : ""}`}
-//                 >
-//                   <div className="text-2xl">{playerStyles[p].avatar}</div>
-//                   <div>
-//                     <div className={`font-semibold ${playerStyles[p].color}`}>
-//                       Player {p}
-//                     </div>
-//                     <div className="text-xs text-slate-400">
-//                       {symbol === p ? "You" : "Opponent"}
-//                     </div>
-//                   </div>
-//                 </div>
-//               )
-//             })}
-//           </div>
-
-//           {/* TURN INDICATOR */}
-//           <div className="flex justify-center mb-4">
-//             <div className={`px-6 py-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10 ${playerStyles[turn].glow}`}>
-//               Turn: <span className={`font-bold ${playerStyles[turn].color}`}>{turn}</span>
-//             </div>
-//           </div>
-
-//           {/* SCOREBOARD */}
-//           <div className="flex justify-center gap-4 mb-6 flex-wrap">
-//             {["X","O"].map(s => (
-//               <div key={s}
-//                 className={`px-6 py-3 rounded-2xl bg-white/10 border border-white/10
-//                 ${highlight === s ? "ring-2 ring-yellow-400 scale-105" : ""}`}>
-//                 <div className="text-lg font-semibold">{s}: {score[s]}</div>
-//                 <div className="text-sm text-orange-300">🔥 {streak[s]}</div>
-//               </div>
-//             ))}
-//           </div>
-
-//           {/* MAIN GRID */}
-//           <div className="grid md:grid-cols-2 gap-6">
-
-//             {/* BOARD */}
-//             <div className="relative flex justify-center">
-//               <div className="grid grid-cols-3 gap-3 p-4 rounded-3xl bg-white/5 backdrop-blur-md shadow-2xl">
-//                 {board.map((cell,i)=>(
-//                   <div key={i}
-//                     onClick={()=>move(i)}
-//                     className="w-20 h-20 md:w-24 md:h-24 flex items-center justify-center text-3xl font-bold rounded-xl bg-slate-800 hover:bg-slate-700 cursor-pointer">
-//                     {cell && (
-//                       <span className={`animate-pop ${playerStyles[cell].color}`}>
-//                         {cell}
-//                       </span>
-//                     )}
-//                   </div>
-//                 ))}
-//               </div>
-
-//               {gameOver && (
-//                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 rounded-3xl space-y-4">
-//                   <h2 className="text-2xl font-bold">
-//                     {winner === "draw" ? "Draw!" : `${winner} Wins!`}
-//                   </h2>
-//                   <button
-//                     disabled={rematchClicked}
-//                     onClick={rematch}
-//                     className="px-6 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 transition disabled:bg-slate-600">
-//                     {rematchClicked ? "Waiting..." : "Rematch"}
-//                   </button>
-//                 </div>
-//               )}
-//             </div>
-
-//             {/* CHAT */}
-//             <div className="flex flex-col rounded-3xl bg-white/5 backdrop-blur-md shadow-xl border border-white/10 overflow-hidden">
-//               <div className="flex-1 p-4 space-y-2 overflow-y-auto max-h-[350px]">
-//                 {messages.map((msg,i)=>(
-//                   <div key={i} className="text-sm">
-//                     <span className="text-indigo-300 font-semibold">{msg.sender}:</span> {msg.message}
-//                   </div>
-//                 ))}
-//                 <div ref={chatRef}></div>
-//               </div>
-
-//               <div className="p-3 border-t border-white/10 flex gap-2">
-//                 <input
-//                   value={input}
-//                   onChange={(e)=>setInput(e.target.value)}
-//                   onKeyDown={(e)=>e.key==="Enter" && sendMessage()}
-//                   placeholder="Type a message..."
-//                   className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-//                 />
-//                 <button onClick={sendMessage}
-//                   className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 transition">
-//                   Send
-//                 </button>
-//               </div>
-//             </div>
-
-//           </div>
-//         </div>
-//       )}
-//     </div>
-//   );
-// }
-
-// export default App;
-
-
 import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
 const socket = io("https://tic-tac-toe-04fr.onrender.com");
 
 const PLAYER_CONFIG = {
-  X: { avatar: "🧑‍🚀", label: "Player X", colorClass: "x" },
-  O: { avatar: "🤖", label: "Player O", colorClass: "o" },
+  X: { avatar: null, avatarImg: "/player-x.jpeg", label: "Player X", colorClass: "x" },
+  O: { avatar: null, avatarImg: "/player-o.jpeg", label: "Player O", colorClass: "o" },
 };
+
+// Helper: render avatar as <img> if avatarImg is set, else fallback to emoji
+const Avatar = ({ cfg, className }) => cfg.avatarImg
+  ? <img src={cfg.avatarImg} alt={cfg.label} className={className} style={{objectFit:"cover",borderRadius:"inherit"}} />
+  : <span>{cfg.avatar}</span>;
 
 function App() {
   const [online, setOnline] = useState(0);
@@ -361,6 +114,54 @@ function App() {
           width: 600px; height: 600px;
           background: radial-gradient(circle, rgba(124,92,252,0.12) 0%, transparent 70%);
           pointer-events: none; z-index: 0;
+        }
+
+        /* Lobby: centered vertically */
+        .ttt-lobby {
+          flex: 1;
+          width: 100%;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 24px;
+        }
+
+        .lobby-card {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 24px;
+          padding: 36px 44px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 18px;
+          text-align: center;
+          max-width: 340px;
+          width: 100%;
+        }
+
+        .lobby-icon { font-size: 52px; line-height: 1; }
+        .lobby-title { font-size: 17px; font-weight: 700; color: var(--text); }
+        .lobby-subtitle {
+          font-family: 'DM Mono', monospace;
+          font-size: 12px;
+          color: var(--muted);
+          line-height: 1.6;
+        }
+
+        .searching-dots span {
+          display: inline-block;
+          animation: dotBounce 1.2s infinite;
+          font-size: 22px;
+          color: var(--accent);
+        }
+        .searching-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .searching-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes dotBounce {
+          0%, 80%, 100% { transform: translateY(0); opacity: 0.3; }
+          40% { transform: translateY(-8px); opacity: 1; }
         }
 
         /* HEADER — fixed height, never shrinks */
@@ -473,6 +274,14 @@ function App() {
           background: var(--surface2);
           display: flex; align-items: center; justify-content: center;
           font-size: 18px; flex-shrink: 0;
+        }
+
+        .p-avatar-img, .msg-av-img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          border-radius: inherit;
+          display: block;
         }
 
         .p-name { font-size: 12px; font-weight: 700; }
@@ -797,13 +606,28 @@ function App() {
 
         {/* LOBBY */}
         {!roomId && (
-          <button
-            className="play-btn"
-            disabled={status.includes("Waiting")}
-            onClick={findMatch}
-          >
-            {status.includes("Waiting") ? "Searching..." : "▶ Play Match"}
-          </button>
+          <div className="ttt-lobby">
+            <div className="lobby-card">
+              <div className="lobby-icon">🎮</div>
+              <div className="lobby-title">
+                {status.includes("Waiting") ? "Finding a match..." : "Ready to Play?"}
+              </div>
+              <div className="lobby-subtitle">
+                {status.includes("Waiting")
+                  ? "Hang tight, connecting you with an opponent"
+                  : "Click below to be matched with a random opponent"}
+              </div>
+              {status.includes("Waiting") ? (
+                <div className="searching-dots">
+                  <span>●</span><span>●</span><span>●</span>
+                </div>
+              ) : (
+                <button className="play-btn" onClick={findMatch}>
+                  ▶ Play Match
+                </button>
+              )}
+            </div>
+          </div>
         )}
 
         {/* GAME */}
@@ -817,7 +641,7 @@ function App() {
                 const isActive = turn === p;
                 return (
                   <div key={p} className={`player-card ${isActive ? `active-${p.toLowerCase()}` : ""}`}>
-                    <div className="p-avatar">{cfg.avatar}</div>
+                    <div className="p-avatar"><Avatar cfg={cfg} className="p-avatar-img" /></div>
                     <div>
                       <div className={`p-name ${p.toLowerCase()}`}>{cfg.label}</div>
                       <div className="p-role">{symbol === p ? "You" : "Opponent"}</div>
@@ -888,7 +712,7 @@ function App() {
                     const cfg = PLAYER_CONFIG[msg.sender];
                     return (
                       <div key={i} className={`msg ${isMe ? "me" : "them"}`}>
-                        <div className="msg-av">{cfg?.avatar}</div>
+                        <div className="msg-av">{cfg && <Avatar cfg={cfg} className="msg-av-img" />}</div>
                         <div className="msg-body">
                           <div className="msg-sender">{msg.sender}</div>
                           <div className="msg-bubble">{msg.message}</div>
