@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
-const socket = io("https://tic-tac-toe-04fr.onrender.com");
+const sockets = io("https://tic-tac-toe-04fr.onrender.com");
+const socket = io("http://localhost:5000");
 
 const PLAYER_CONFIG = {
   X: { avatar: null, avatarImg: "player-x.jpeg", label: "Player X", colorClass: "x" },
@@ -19,7 +20,6 @@ function App() {
   const [symbol, setSymbol] = useState(null);
   const [board, setBoard] = useState(Array(9).fill(null));
   const [turn, setTurn] = useState("X");
-  const [status, setStatus] = useState("Click Play to Find Match");
   const [score, setScore] = useState({ X: 0, O: 0 });
   const [streak, setStreak] = useState({ X: 0, O: 0 });
   const [highlight, setHighlight] = useState(null);
@@ -28,14 +28,19 @@ function App() {
   const [rematchClicked, setRematchClicked] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
+  const [lobbyMode, setLobbyMode] = useState("idle"); // "idle" | "searching" | "invite" | "creating"
+  const [inviteCode, setInviteCode] = useState("");
+  const [joinCodeInput, setJoinCodeInput] = useState("");
+  const [joinError, setJoinError] = useState("");
+  const [copied, setCopied] = useState(false);
   const chatRef = useRef();
   const winAudio = new Audio("/win.mp3");
 
   useEffect(() => {
     socket.on("onlineCount", setOnline);
-    socket.on("waiting", () => setStatus("⏳ Waiting for opponent..."));
+    socket.on("waiting", () => {});
     socket.on("matchFound", ({ roomId, symbol }) => { setRoomId(roomId); setSymbol(symbol); });
-    socket.on("matchStarted", () => setStatus("🎮 Match Started"));
+    socket.on("matchStarted", () => {});
     socket.on("gameState", (room) => {
       setBoard(room.board); setTurn(room.turn);
       setScore(room.score); setStreak(room.streak);
@@ -51,8 +56,10 @@ function App() {
     socket.on("receiveMessage", (msg) => setMessages(prev => [...prev, msg]));
     socket.on("rematchStarted", () => {
       setGameOver(false); setWinner(null); setRematchClicked(false);
-      setStatus("🔄 Rematch Started"); setBoard(Array(9).fill(null));
+      setBoard(Array(9).fill(null));
     });
+    socket.on("privateRoomCreated", ({ code }) => { setInviteCode(code); setLobbyMode("creating"); });
+    socket.on("privateRoomError", (msg) => setJoinError(msg));
     return () => socket.off();
   }, []);
 
@@ -60,13 +67,30 @@ function App() {
     chatRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const findMatch = () => socket.emit("findMatch");
+  const findMatch = () => { socket.emit("findMatch"); setLobbyMode("searching"); };
   const move = (i) => { if (!gameOver && board[i] == null) socket.emit("makeMove", { roomId, index: i }); };
   const sendMessage = () => {
     if (input.trim()) { socket.emit("sendMessage", { roomId, message: input, symbol }); setInput(""); }
   };
   const rematch = () => {
-    if (!rematchClicked) { socket.emit("rematch", { roomId }); setRematchClicked(true); setStatus("Waiting for opponent..."); }
+    if (!rematchClicked) { socket.emit("rematch", { roomId }); setRematchClicked(true); }
+  };
+  const createPrivateRoom = () => socket.emit("createPrivateRoom");
+  const joinPrivateRoom = () => {
+    if (!joinCodeInput.trim()) return;
+    setJoinError("");
+    socket.emit("joinPrivateRoom", { code: joinCodeInput.trim().toUpperCase() });
+  };
+  const copyCode = () => {
+    navigator.clipboard.writeText(inviteCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  const cancelLobby = () => {
+    setLobbyMode("idle");
+    setInviteCode("");
+    setJoinCodeInput("");
+    setJoinError("");
   };
 
   return (
@@ -597,6 +621,86 @@ function App() {
         .send-btn:active { transform: scale(0.92); }
 
         .send-icon { width: 16px; height: 16px; fill: #fff; }
+
+        /* ── INVITE ── */
+        .btn-row { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+
+        .play-btn.secondary {
+          background: var(--surface2);
+          box-shadow: none;
+          border: 1px solid var(--border);
+          color: var(--text);
+        }
+        .play-btn.secondary:hover { background: var(--surface2); box-shadow: 0 4px 16px rgba(255,255,255,0.05); }
+
+        .invite-code-wrap {
+          display: flex; align-items: center; gap: 12px;
+          background: var(--surface2);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 12px 18px;
+          width: 100%;
+          justify-content: center;
+        }
+
+        .invite-code {
+          font-family: 'DM Mono', monospace;
+          font-size: 28px; font-weight: 700;
+          letter-spacing: 6px;
+          color: var(--accent);
+        }
+
+        .copy-btn {
+          background: var(--surface);
+          border: 1px solid var(--border);
+          color: var(--text);
+          font-family: 'DM Mono', monospace;
+          font-size: 11px;
+          padding: 6px 12px;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+        .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .copy-btn.copied { border-color: #22d66a; color: #22d66a; }
+
+        .join-input {
+          width: 100%;
+          background: var(--surface2);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          padding: 12px 16px;
+          color: var(--text);
+          font-family: 'DM Mono', monospace;
+          font-size: 22px; font-weight: 700;
+          letter-spacing: 5px;
+          outline: none; text-align: center;
+          transition: border-color 0.2s;
+          text-transform: uppercase;
+        }
+        .join-input:focus { border-color: rgba(124,92,252,0.5); }
+        .join-input::placeholder { letter-spacing: normal; font-size: 14px; font-weight: 400; text-transform: none; color: var(--muted); }
+
+        .join-error { color: var(--o); font-family: 'DM Mono', monospace; font-size: 12px; text-align: center; }
+
+        .back-link {
+          background: none; border: none;
+          color: var(--muted);
+          font-family: 'DM Mono', monospace; font-size: 11px;
+          cursor: pointer; transition: color 0.2s;
+        }
+        .back-link:hover { color: var(--text); }
+
+        .invite-divider {
+          width: 100%; display: flex; align-items: center; gap: 10px;
+        }
+        .invite-divider::before, .invite-divider::after {
+          content: ''; flex: 1; height: 1px; background: var(--border);
+        }
+        .invite-divider span {
+          font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted);
+        }
       `}</style>
 
       <div className="ttt-app">
@@ -613,24 +717,70 @@ function App() {
         {!roomId && (
           <div className="ttt-lobby">
             <div className="lobby-card">
-              <div className="lobby-icon">🎮</div>
-              <div className="lobby-title">
-                {status.includes("Waiting") ? "Finding a match..." : "Ready to Play?"}
-              </div>
-              <div className="lobby-subtitle">
-                {status.includes("Waiting")
-                  ? "Hang tight, connecting you with an opponent"
-                  : "Click below to be matched with a random opponent"}
-              </div>
-              {status.includes("Waiting") ? (
-                <div className="searching-dots">
-                  <span>●</span><span>●</span><span>●</span>
-                </div>
-              ) : (
-                <button className="play-btn" onClick={findMatch}>
-                  ▶ Play Match
-                </button>
+
+              {lobbyMode === "idle" && (
+                <>
+                  <div className="lobby-icon">🎮</div>
+                  <div className="lobby-title">Ready to Play?</div>
+                  <div className="lobby-subtitle">Challenge a random opponent or invite a friend to a private match</div>
+                  <div className="btn-row">
+                    <button className="play-btn" onClick={findMatch}>▶ Random Match</button>
+                    <button className="play-btn secondary" onClick={() => setLobbyMode("invite")}>🔗 Invite a Friend</button>
+                  </div>
+                </>
               )}
+
+              {lobbyMode === "searching" && (
+                <>
+                  <div className="lobby-icon">🔍</div>
+                  <div className="lobby-title">Finding a match...</div>
+                  <div className="lobby-subtitle">Hang tight, connecting you with an opponent</div>
+                  <div className="searching-dots">
+                    <span>●</span><span>●</span><span>●</span>
+                  </div>
+                </>
+              )}
+
+              {lobbyMode === "invite" && (
+                <>
+                  <div className="lobby-icon">🔗</div>
+                  <div className="lobby-title">Invite a Friend</div>
+                  <div className="lobby-subtitle">Create a private room and share the code, or enter a friend's code to join</div>
+                  <button className="play-btn" onClick={createPrivateRoom}>+ Create Private Room</button>
+                  <div className="invite-divider"><span>or join</span></div>
+                  <input
+                    className="join-input"
+                    placeholder="Enter invite code"
+                    value={joinCodeInput}
+                    onChange={e => { setJoinCodeInput(e.target.value.toUpperCase()); setJoinError(""); }}
+                    onKeyDown={e => e.key === "Enter" && joinPrivateRoom()}
+                    maxLength={6}
+                  />
+                  {joinError && <div className="join-error">{joinError}</div>}
+                  <button className="play-btn" onClick={joinPrivateRoom} disabled={!joinCodeInput.trim()}>Join Room</button>
+                  <button className="back-link" onClick={cancelLobby}>← Back</button>
+                </>
+              )}
+
+              {lobbyMode === "creating" && (
+                <>
+                  <div className="lobby-icon">🔗</div>
+                  <div className="lobby-title">Room Created!</div>
+                  <div className="lobby-subtitle">Share this code with your friend</div>
+                  <div className="invite-code-wrap">
+                    <div className="invite-code">{inviteCode}</div>
+                    <button className={`copy-btn${copied ? " copied" : ""}`} onClick={copyCode}>
+                      {copied ? "✓ Copied" : "Copy"}
+                    </button>
+                  </div>
+                  <div className="searching-dots">
+                    <span>●</span><span>●</span><span>●</span>
+                  </div>
+                  <div className="lobby-subtitle">Waiting for friend to join...</div>
+                  <button className="back-link" onClick={cancelLobby}>✕ Cancel</button>
+                </>
+              )}
+
             </div>
           </div>
         )}

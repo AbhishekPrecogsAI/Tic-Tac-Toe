@@ -15,6 +15,11 @@ const io = new Server(server, {
 let queue = [];
 let onlinePlayers = 0;
 const rooms = {};
+const privatePending = {};
+
+function generateCode() {
+    return Math.random().toString(36).slice(2, 8).toUpperCase();
+}
 
 function checkWinner(board) {
     const patterns = [
@@ -154,12 +159,59 @@ io.on("connection", (socket) => {
         }
     });
 
+    // =====================
+    // PRIVATE ROOMS
+    // =====================
+    socket.on("createPrivateRoom", () => {
+        for (const c in privatePending) {
+            if (privatePending[c].id === socket.id) delete privatePending[c];
+        }
+        let code;
+        do { code = generateCode(); } while (privatePending[code]);
+        privatePending[code] = socket;
+        socket.emit("privateRoomCreated", { code });
+    });
+
+    socket.on("joinPrivateRoom", ({ code }) => {
+        const normalized = code?.trim().toUpperCase();
+        const host = privatePending[normalized];
+        if (!host) return socket.emit("privateRoomError", "Invalid or expired invite code.");
+        if (host.id === socket.id) return socket.emit("privateRoomError", "You can't join your own room.");
+
+        delete privatePending[normalized];
+
+        const roomId = `room-${host.id}-${socket.id}`;
+        rooms[roomId] = {
+            players: [
+                { id: host.id, symbol: "X" },
+                { id: socket.id, symbol: "O" }
+            ],
+            board: Array(9).fill(null),
+            turn: "X",
+            score: { X: 0, O: 0 },
+            streak: { X: 0, O: 0 },
+            rematchVotes: {}
+        };
+
+        host.join(roomId);
+        socket.join(roomId);
+
+        io.to(host.id).emit("matchFound", { roomId, symbol: "X" });
+        io.to(socket.id).emit("matchFound", { roomId, symbol: "O" });
+        io.to(roomId).emit("matchStarted");
+        io.to(roomId).emit("gameState", rooms[roomId]);
+    });
+
     socket.on("disconnect", () => {
 
         onlinePlayers--;
         io.emit("onlineCount", onlinePlayers);
 
         queue = queue.filter(p => p.id !== socket.id);
+
+        for (const c in privatePending) {
+            if (privatePending[c].id === socket.id) delete privatePending[c];
+        }
 
         for (let roomId in rooms) {
             if (rooms[roomId].players.find(p => p.id === socket.id)) {
