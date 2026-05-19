@@ -177,21 +177,25 @@ function App() {
 
   const toggleMic = async () => {
     if (!micOn) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        localStreamRef.current = stream;
-        setMicOn(true);
-        socket.emit("voiceReady", { roomId });
-      } catch {
-        // mic permission denied — silently fail
+      // Get mic access once; reuse the stream on subsequent unmutes
+      if (!localStreamRef.current) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          localStreamRef.current = stream;
+        } catch {
+          return; // permission denied
+        }
       }
+      localStreamRef.current.getTracks().forEach(t => { t.enabled = true; });
+      setMicOn(true);
+      // If peer connection is still alive, just notify opponent; otherwise do full handshake
+      const pc = peerRef.current;
+      const alive = pc && pc.connectionState !== "closed" && pc.connectionState !== "failed";
+      socket.emit(alive ? "voiceUnmuted" : "voiceReady", { roomId });
     } else {
+      // Mute: disable track only — keep the peer connection alive
+      localStreamRef.current?.getTracks().forEach(t => { t.enabled = false; });
       setMicOn(false);
-      setCallConnected(false);
-      localStreamRef.current?.getTracks().forEach(t => t.stop());
-      localStreamRef.current = null;
-      peerRef.current?.close();
-      peerRef.current = null;
       socket.emit("voiceMuted", { roomId });
     }
   };

@@ -225,6 +225,11 @@ io.on("connection", (socket) => {
         if (opponent) io.to(opponent.id).emit("voiceOpponentMuted");
     });
 
+    socket.on("voiceUnmuted", ({ roomId }) => {
+        const opponent = rooms[roomId]?.players.find(p => p.id !== socket.id);
+        if (opponent) io.to(opponent.id).emit("voiceOpponentReady");
+    });
+
     socket.on("voiceOffer", ({ roomId, offer }) => {
         const opponent = rooms[roomId]?.players.find(p => p.id !== socket.id);
         if (opponent) io.to(opponent.id).emit("voiceOffer", { offer });
