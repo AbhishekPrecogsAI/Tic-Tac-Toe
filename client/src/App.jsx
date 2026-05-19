@@ -1,18 +1,30 @@
 import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
-const sockets = io("https://tic-tac-toe-04fr.onrender.com");
-const socket = io("http://localhost:5000");
+const socket = io("https://tic-tac-toe-04fr.onrender.com");
+// const socket = io("http://localhost:5000");
 
 const PLAYER_CONFIG = {
   X: { avatar: null, avatarImg: "player-x.jpeg", label: "Player X", colorClass: "x" },
   O: { avatar: null, avatarImg: "player-o.jpeg", label: "Player O", colorClass: "o" },
 };
 
-// Helper: render avatar as <img> if avatarImg is set, else fallback to emoji
 const Avatar = ({ cfg, className }) => cfg.avatarImg
   ? <img src={cfg.avatarImg} alt={cfg.label} className={className} style={{objectFit:"cover",borderRadius:"inherit"}} />
   : <span>{cfg.avatar}</span>;
+
+const MicIcon = () => (
+  <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+    <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08C16.39 17.43 19 14.53 19 11h-2z"/>
+  </svg>
+);
+
+const MicOffIcon = () => (
+  <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+    <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/>
+  </svg>
+);
 
 function App() {
   const [online, setOnline] = useState(0);
@@ -33,7 +45,13 @@ function App() {
   const [joinCodeInput, setJoinCodeInput] = useState("");
   const [joinError, setJoinError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [micOn, setMicOn] = useState(false);
+  const [opponentMicOn, setOpponentMicOn] = useState(false);
+  const [callConnected, setCallConnected] = useState(false);
   const chatRef = useRef();
+  const peerRef = useRef(null);
+  const localStreamRef = useRef(null);
+  const remoteAudioRef = useRef(null);
   const winAudio = new Audio("/win.mp3");
 
   useEffect(() => {
@@ -60,12 +78,76 @@ function App() {
     });
     socket.on("privateRoomCreated", ({ code }) => { setInviteCode(code); setLobbyMode("creating"); });
     socket.on("privateRoomError", (msg) => setJoinError(msg));
+    socket.on("voiceOpponentReady", () => setOpponentMicOn(true));
+    socket.on("voiceOpponentMuted", () => { setOpponentMicOn(false); setCallConnected(false); });
     return () => socket.off();
   }, []);
 
   useEffect(() => {
     chatRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (!roomId) return;
+
+    const buildPeer = () => {
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(t => pc.addTrack(t, localStreamRef.current));
+      }
+      pc.ontrack = (e) => {
+        if (remoteAudioRef.current) remoteAudioRef.current.srcObject = e.streams[0];
+        setCallConnected(true);
+      };
+      pc.onicecandidate = (e) => {
+        if (e.candidate) socket.emit("voiceIce", { roomId, candidate: e.candidate });
+      };
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+          setCallConnected(false);
+        }
+      };
+      peerRef.current = pc;
+      return pc;
+    };
+
+    const onCreateOffer = async () => {
+      if (!localStreamRef.current) return;
+      const pc = buildPeer();
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit("voiceOffer", { roomId, offer });
+    };
+
+    const onVoiceOffer = async ({ offer }) => {
+      if (!localStreamRef.current) return;
+      const pc = buildPeer();
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("voiceAnswer", { roomId, answer });
+    };
+
+    const onVoiceAnswer = ({ answer }) => {
+      peerRef.current?.setRemoteDescription(new RTCSessionDescription(answer));
+    };
+
+    const onVoiceIce = ({ candidate }) => {
+      peerRef.current?.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+    };
+
+    socket.on("voiceCreateOffer", onCreateOffer);
+    socket.on("voiceOffer", onVoiceOffer);
+    socket.on("voiceAnswer", onVoiceAnswer);
+    socket.on("voiceIce", onVoiceIce);
+
+    return () => {
+      socket.off("voiceCreateOffer", onCreateOffer);
+      socket.off("voiceOffer", onVoiceOffer);
+      socket.off("voiceAnswer", onVoiceAnswer);
+      socket.off("voiceIce", onVoiceIce);
+    };
+  }, [roomId]);
 
   const findMatch = () => { socket.emit("findMatch"); setLobbyMode("searching"); };
   const move = (i) => { if (!gameOver && board[i] == null) socket.emit("makeMove", { roomId, index: i }); };
@@ -91,6 +173,27 @@ function App() {
     setInviteCode("");
     setJoinCodeInput("");
     setJoinError("");
+  };
+
+  const toggleMic = async () => {
+    if (!micOn) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        localStreamRef.current = stream;
+        setMicOn(true);
+        socket.emit("voiceReady", { roomId });
+      } catch {
+        // mic permission denied — silently fail
+      }
+    } else {
+      setMicOn(false);
+      setCallConnected(false);
+      localStreamRef.current?.getTracks().forEach(t => t.stop());
+      localStreamRef.current = null;
+      peerRef.current?.close();
+      peerRef.current = null;
+      socket.emit("voiceMuted", { roomId });
+    }
   };
 
   return (
@@ -287,6 +390,7 @@ function App() {
           inset: 0;
           opacity: 0;
           transition: opacity 0.3s;
+          pointer-events: none;
         }
 
         .player-card.active-x { border-color: rgba(0,229,255,0.35); }
@@ -701,9 +805,42 @@ function App() {
         .invite-divider span {
           font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted);
         }
+
+        /* ── VOICE CHAT ── */
+        .mic-btn {
+          margin-left: auto;
+          background: none;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          width: 26px; height: 26px;
+          display: flex; align-items: center; justify-content: center;
+          cursor: pointer;
+          transition: all 0.2s;
+          color: var(--muted);
+          flex-shrink: 0;
+          padding: 0;
+        }
+        .mic-btn:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+        .mic-btn.mic-on { border-color: #22d66a; color: #22d66a; box-shadow: 0 0 8px rgba(34,214,106,0.3); }
+        .mic-btn.opponent-on { border-color: rgba(34,214,106,0.45); color: #22d66a; cursor: default; }
+        .mic-btn.opponent-off { cursor: default; }
+
+        .voice-pill {
+          background: var(--surface);
+          border: 1px solid rgba(34,214,106,0.45);
+          border-radius: 50px;
+          padding: 4px 10px;
+          font-family: 'DM Mono', monospace;
+          font-size: 10px;
+          color: #22d66a;
+          display: flex; align-items: center; gap: 6px;
+          animation: fadeIn 0.3s ease;
+        }
       `}</style>
 
       <div className="ttt-app">
+        <audio ref={remoteAudioRef} autoPlay style={{ display: "none" }} />
+
         {/* HEADER */}
         <div className="ttt-header">
           <h1>Tic Tac Toe</h1>
@@ -794,13 +931,30 @@ function App() {
               {["X", "O"].map(p => {
                 const cfg = PLAYER_CONFIG[p];
                 const isActive = turn === p;
+                const isMe = symbol === p;
                 return (
                   <div key={p} className={`player-card ${isActive ? `active-${p.toLowerCase()}` : ""}`}>
                     <div className="p-avatar"><Avatar cfg={cfg} className="p-avatar-img" /></div>
                     <div>
                       <div className={`p-name ${p.toLowerCase()}`}>{cfg.label}</div>
-                      <div className="p-role">{symbol === p ? "You" : "Opponent"}</div>
+                      <div className="p-role">{isMe ? "You" : "Opponent"}</div>
                     </div>
+                    {isMe ? (
+                      <button
+                        className={`mic-btn${micOn ? " mic-on" : ""}`}
+                        onClick={toggleMic}
+                        title={micOn ? "Mute mic" : "Unmute mic"}
+                      >
+                        {micOn ? <MicIcon /> : <MicOffIcon />}
+                      </button>
+                    ) : (
+                      <div
+                        className={`mic-btn${opponentMicOn ? " opponent-on" : " opponent-off"}`}
+                        title={opponentMicOn ? "Opponent mic on" : "Opponent muted"}
+                      >
+                        {opponentMicOn ? <MicIcon /> : <MicOffIcon />}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -811,6 +965,11 @@ function App() {
               <div className="turn-pill">
                 Turn: <b className={turn.toLowerCase()}>{turn}</b>
               </div>
+              {callConnected && (
+                <div className="voice-pill">
+                  <div className="online-dot" /> Voice
+                </div>
+              )}
               <div className="scores">
                 {["X", "O"].map(s => (
                   <div key={s} className={`score-chip ${highlight === s ? `glow-${s.toLowerCase()}` : ""}`}>

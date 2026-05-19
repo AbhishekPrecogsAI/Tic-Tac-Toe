@@ -202,6 +202,44 @@ io.on("connection", (socket) => {
         io.to(roomId).emit("gameState", rooms[roomId]);
     });
 
+    // =====================
+    // VOICE CHAT SIGNALING
+    // =====================
+    socket.on("voiceReady", ({ roomId }) => {
+        const room = rooms[roomId];
+        if (!room) return;
+        if (!room.voiceReady) room.voiceReady = new Set();
+        room.voiceReady.add(socket.id);
+        const opponent = room.players.find(p => p.id !== socket.id);
+        if (opponent) io.to(opponent.id).emit("voiceOpponentReady");
+        if (room.voiceReady.size >= 2) {
+            const oPlayer = room.players.find(p => p.symbol === "O");
+            if (oPlayer) io.to(oPlayer.id).emit("voiceCreateOffer");
+        }
+    });
+
+    socket.on("voiceMuted", ({ roomId }) => {
+        const room = rooms[roomId];
+        if (room?.voiceReady) room.voiceReady.delete(socket.id);
+        const opponent = room?.players.find(p => p.id !== socket.id);
+        if (opponent) io.to(opponent.id).emit("voiceOpponentMuted");
+    });
+
+    socket.on("voiceOffer", ({ roomId, offer }) => {
+        const opponent = rooms[roomId]?.players.find(p => p.id !== socket.id);
+        if (opponent) io.to(opponent.id).emit("voiceOffer", { offer });
+    });
+
+    socket.on("voiceAnswer", ({ roomId, answer }) => {
+        const opponent = rooms[roomId]?.players.find(p => p.id !== socket.id);
+        if (opponent) io.to(opponent.id).emit("voiceAnswer", { answer });
+    });
+
+    socket.on("voiceIce", ({ roomId, candidate }) => {
+        const opponent = rooms[roomId]?.players.find(p => p.id !== socket.id);
+        if (opponent) io.to(opponent.id).emit("voiceIce", { candidate });
+    });
+
     socket.on("disconnect", () => {
 
         onlinePlayers--;
