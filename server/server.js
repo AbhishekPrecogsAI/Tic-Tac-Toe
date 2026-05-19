@@ -46,7 +46,9 @@ io.on("connection", (socket) => {
     // =====================
     // MATCHMAKING
     // =====================
-    socket.on("findMatch", () => {
+    socket.on("findMatch", ({ name = "Player", avatar = "🎮" } = {}) => {
+        socket.playerName = name;
+        socket.playerAvatar = avatar;
 
         if (queue.find(p => p.id === socket.id)) return;
 
@@ -63,8 +65,8 @@ io.on("connection", (socket) => {
 
             rooms[roomId] = {
                 players: [
-                    { id: player1.id, symbol: "X" },
-                    { id: player2.id, symbol: "O" }
+                    { id: player1.id, symbol: "X", name: player1.playerName, avatar: player1.playerAvatar },
+                    { id: player2.id, symbol: "O", name: player2.playerName, avatar: player2.playerAvatar }
                 ],
                 board: Array(9).fill(null),
                 turn: "X",
@@ -76,8 +78,9 @@ io.on("connection", (socket) => {
             player1.join(roomId);
             player2.join(roomId);
 
-            io.to(player1.id).emit("matchFound", { roomId, symbol: "X" });
-            io.to(player2.id).emit("matchFound", { roomId, symbol: "O" });
+            const playersInfo = rooms[roomId].players.map(({ symbol, name, avatar }) => ({ symbol, name, avatar }));
+            io.to(player1.id).emit("matchFound", { roomId, symbol: "X", players: playersInfo });
+            io.to(player2.id).emit("matchFound", { roomId, symbol: "O", players: playersInfo });
 
             io.to(roomId).emit("matchStarted");
             io.to(roomId).emit("gameState", rooms[roomId]);
@@ -162,7 +165,10 @@ io.on("connection", (socket) => {
     // =====================
     // PRIVATE ROOMS
     // =====================
-    socket.on("createPrivateRoom", () => {
+    socket.on("createPrivateRoom", ({ name = "Player", avatar = "🎮" } = {}) => {
+        socket.playerName = name;
+        socket.playerAvatar = avatar;
+
         for (const c in privatePending) {
             if (privatePending[c].id === socket.id) delete privatePending[c];
         }
@@ -172,7 +178,10 @@ io.on("connection", (socket) => {
         socket.emit("privateRoomCreated", { code });
     });
 
-    socket.on("joinPrivateRoom", ({ code }) => {
+    socket.on("joinPrivateRoom", ({ code, name = "Player", avatar = "🎮" }) => {
+        socket.playerName = name;
+        socket.playerAvatar = avatar;
+
         const normalized = code?.trim().toUpperCase();
         const host = privatePending[normalized];
         if (!host) return socket.emit("privateRoomError", "Invalid or expired invite code.");
@@ -183,8 +192,8 @@ io.on("connection", (socket) => {
         const roomId = `room-${host.id}-${socket.id}`;
         rooms[roomId] = {
             players: [
-                { id: host.id, symbol: "X" },
-                { id: socket.id, symbol: "O" }
+                { id: host.id, symbol: "X", name: host.playerName, avatar: host.playerAvatar },
+                { id: socket.id, symbol: "O", name: socket.playerName, avatar: socket.playerAvatar }
             ],
             board: Array(9).fill(null),
             turn: "X",
@@ -196,10 +205,19 @@ io.on("connection", (socket) => {
         host.join(roomId);
         socket.join(roomId);
 
-        io.to(host.id).emit("matchFound", { roomId, symbol: "X" });
-        io.to(socket.id).emit("matchFound", { roomId, symbol: "O" });
+        const playersInfo = rooms[roomId].players.map(({ symbol, name, avatar }) => ({ symbol, name, avatar }));
+        io.to(host.id).emit("matchFound", { roomId, symbol: "X", players: playersInfo });
+        io.to(socket.id).emit("matchFound", { roomId, symbol: "O", players: playersInfo });
         io.to(roomId).emit("matchStarted");
         io.to(roomId).emit("gameState", rooms[roomId]);
+    });
+
+    // =====================
+    // EMOJI REACTIONS
+    // =====================
+    socket.on("sendReaction", ({ roomId, emoji }) => {
+        const opponent = rooms[roomId]?.players.find(p => p.id !== socket.id);
+        if (opponent) io.to(opponent.id).emit("receiveReaction", { emoji });
     });
 
     // =====================
@@ -257,7 +275,10 @@ io.on("connection", (socket) => {
         }
 
         for (let roomId in rooms) {
-            if (rooms[roomId].players.find(p => p.id === socket.id)) {
+            const room = rooms[roomId];
+            if (room.players.find(p => p.id === socket.id)) {
+                const remaining = room.players.find(p => p.id !== socket.id);
+                if (remaining) io.to(remaining.id).emit("opponentDisconnected");
                 delete rooms[roomId];
             }
         }

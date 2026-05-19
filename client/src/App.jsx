@@ -4,14 +4,7 @@ import { io } from "socket.io-client";
 const socket = io("https://tic-tac-toe-04fr.onrender.com");
 // const socket = io("http://localhost:5000");
 
-const PLAYER_CONFIG = {
-  X: { avatar: null, avatarImg: "player-x.jpeg", label: "Player X", colorClass: "x" },
-  O: { avatar: null, avatarImg: "player-o.jpeg", label: "Player O", colorClass: "o" },
-};
-
-const Avatar = ({ cfg, className }) => cfg.avatarImg
-  ? <img src={cfg.avatarImg} alt={cfg.label} className={className} style={{objectFit:"cover",borderRadius:"inherit"}} />
-  : <span>{cfg.avatar}</span>;
+const PRESET_AVATARS = ["🦊","🐼","🦁","🐻","🐸","🦋","🦄","🤖","🐯","🐙","🎭","⚡"];
 
 const MicIcon = () => (
   <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
@@ -25,6 +18,19 @@ const MicOffIcon = () => (
     <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z"/>
   </svg>
 );
+
+const playClick = () => {
+  try {
+    const ctx = new (window.AudioContext || window["webkitAudioContext"])();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 520;
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.08);
+  } catch {}
+};
 
 function App() {
   const [online, setOnline] = useState(0);
@@ -48,18 +54,60 @@ function App() {
   const [micOn, setMicOn] = useState(false);
   const [opponentMicOn, setOpponentMicOn] = useState(false);
   const [callConnected, setCallConnected] = useState(false);
+  const [disconnectMsg, setDisconnectMsg] = useState(false);
+  const [setupDone, setSetupDone] = useState(false);
+  const [myName, setMyName] = useState("");
+  const [myAvatar, setMyAvatar] = useState("🦊");
+  const [opponentName, setOpponentName] = useState("");
+  const [opponentAvatar, setOpponentAvatar] = useState("🎮");
+  const [activeReactions, setActiveReactions] = useState([]);
   const chatRef = useRef();
   const peerRef = useRef(null);
   const localStreamRef = useRef(null);
   const remoteAudioRef = useRef(null);
+  const boardFilledRef = useRef(0);
   const winAudio = new Audio("/win.mp3");
+
+  const resetToLobby = () => {
+    setRoomId(null); setSymbol(null);
+    setBoard(Array(9).fill(null)); setTurn("X");
+    setScore({ X: 0, O: 0 }); setStreak({ X: 0, O: 0 });
+    setGameOver(false); setWinner(null); setRematchClicked(false);
+    setMessages([]); setMicOn(false); setOpponentMicOn(false); setCallConnected(false);
+    setLobbyMode("idle"); boardFilledRef.current = 0;
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
+    localStreamRef.current = null;
+    peerRef.current?.close(); peerRef.current = null;
+  };
+
+  const addReaction = (emoji) => {
+    const id = Date.now() + Math.random();
+    setActiveReactions(prev => [...prev, { id, emoji }]);
+    setTimeout(() => setActiveReactions(prev => prev.filter(r => r.id !== id)), 2500);
+  };
+
+  const sendReaction = (emoji) => {
+    addReaction(emoji);
+    socket.emit("sendReaction", { roomId, emoji });
+  };
 
   useEffect(() => {
     socket.on("onlineCount", setOnline);
     socket.on("waiting", () => {});
-    socket.on("matchFound", ({ roomId, symbol }) => { setRoomId(roomId); setSymbol(symbol); });
+    socket.on("matchFound", ({ roomId, symbol, players }) => {
+      setRoomId(roomId); setSymbol(symbol);
+      if (players) {
+        const me = players.find(p => p.symbol === symbol);
+        const opp = players.find(p => p.symbol !== symbol);
+        if (me) { setMyName(me.name || ""); setMyAvatar(me.avatar || "🦊"); }
+        if (opp) { setOpponentName(opp.name || ""); setOpponentAvatar(opp.avatar || "🎮"); }
+      }
+    });
     socket.on("matchStarted", () => {});
     socket.on("gameState", (room) => {
+      const newFilled = room.board.filter(Boolean).length;
+      if (newFilled > boardFilledRef.current) playClick();
+      boardFilledRef.current = newFilled;
       setBoard(room.board); setTurn(room.turn);
       setScore(room.score); setStreak(room.streak);
     });
@@ -75,11 +123,17 @@ function App() {
     socket.on("rematchStarted", () => {
       setGameOver(false); setWinner(null); setRematchClicked(false);
       setBoard(Array(9).fill(null));
+      boardFilledRef.current = 0;
     });
     socket.on("privateRoomCreated", ({ code }) => { setInviteCode(code); setLobbyMode("creating"); });
     socket.on("privateRoomError", (msg) => setJoinError(msg));
     socket.on("voiceOpponentReady", () => setOpponentMicOn(true));
     socket.on("voiceOpponentMuted", () => { setOpponentMicOn(false); setCallConnected(false); });
+    socket.on("opponentDisconnected", () => {
+      setDisconnectMsg(true);
+      setTimeout(() => { setDisconnectMsg(false); resetToLobby(); }, 3000);
+    });
+    socket.on("receiveReaction", ({ emoji }) => addReaction(emoji));
     return () => socket.off();
   }, []);
 
@@ -149,7 +203,7 @@ function App() {
     };
   }, [roomId]);
 
-  const findMatch = () => { socket.emit("findMatch"); setLobbyMode("searching"); };
+  const findMatch = () => { socket.emit("findMatch", { name: myName, avatar: myAvatar }); setLobbyMode("searching"); };
   const move = (i) => { if (!gameOver && board[i] == null) socket.emit("makeMove", { roomId, index: i }); };
   const sendMessage = () => {
     if (input.trim()) { socket.emit("sendMessage", { roomId, message: input, symbol }); setInput(""); }
@@ -157,11 +211,11 @@ function App() {
   const rematch = () => {
     if (!rematchClicked) { socket.emit("rematch", { roomId }); setRematchClicked(true); }
   };
-  const createPrivateRoom = () => socket.emit("createPrivateRoom");
+  const createPrivateRoom = () => socket.emit("createPrivateRoom", { name: myName, avatar: myAvatar });
   const joinPrivateRoom = () => {
     if (!joinCodeInput.trim()) return;
     setJoinError("");
-    socket.emit("joinPrivateRoom", { code: joinCodeInput.trim().toUpperCase() });
+    socket.emit("joinPrivateRoom", { code: joinCodeInput.trim().toUpperCase(), name: myName, avatar: myAvatar });
   };
   const copyCode = () => {
     navigator.clipboard.writeText(inviteCode);
@@ -840,10 +894,72 @@ function App() {
           display: flex; align-items: center; gap: 6px;
           animation: fadeIn 0.3s ease;
         }
+
+        /* ── DISCONNECT BANNER ── */
+        .disconnect-banner {
+          position: absolute; inset: 0;
+          background: rgba(8,11,20,0.92);
+          backdrop-filter: blur(8px);
+          display: flex; flex-direction: column;
+          align-items: center; justify-content: center;
+          gap: 12px; z-index: 50;
+          animation: fadeIn 0.3s ease;
+          border-radius: var(--radius);
+        }
+        .disconnect-title { font-size: 20px; font-weight: 700; color: #ff4d8d; }
+        .disconnect-sub { font-family: 'DM Mono', monospace; font-size: 12px; color: #5a6180; }
+
+        /* ── NAME INPUT ── */
+        .name-input {
+          width: 100%; background: var(--surface2); border: 1px solid var(--border);
+          border-radius: 12px; padding: 11px 16px; color: var(--text);
+          font-family: 'Syne', sans-serif; font-size: 14px; outline: none;
+          transition: border-color 0.2s;
+        }
+        .name-input:focus { border-color: rgba(124,92,252,0.5); }
+        .name-input::placeholder { color: var(--muted); }
+
+        /* ── AVATAR GRID ── */
+        .avatar-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; width: 100%; }
+        .avatar-option {
+          font-size: 22px; width: 40px; height: 40px; border-radius: 10px;
+          border: 2px solid transparent; background: var(--surface2);
+          cursor: pointer; display: flex; align-items: center; justify-content: center;
+          transition: all 0.15s;
+        }
+        .avatar-option:hover { border-color: rgba(255,255,255,0.2); }
+        .avatar-option.selected { border-color: var(--accent); box-shadow: 0 0 12px rgba(124,92,252,0.4); }
+
+        /* ── REACTION ROW ── */
+        .reaction-row { display: flex; gap: 8px; justify-content: center; flex-shrink: 0; }
+        .reaction-btn {
+          background: var(--surface); border: 1px solid var(--border);
+          border-radius: 10px; padding: 5px 12px; font-size: 18px;
+          cursor: pointer; transition: all 0.15s; line-height: 1;
+        }
+        .reaction-btn:hover { transform: scale(1.2); border-color: rgba(255,255,255,0.2); }
+        .reaction-btn:active { transform: scale(0.9); }
+
+        /* ── FLOATING REACTIONS ── */
+        .reaction-float {
+          position: fixed; left: 50%; bottom: 35%;
+          font-size: 52px; pointer-events: none; z-index: 999;
+          animation: reactionFloat 2.5s ease forwards;
+        }
+        @keyframes reactionFloat {
+          0% { transform: translateX(-50%) scale(0.4); opacity: 1; }
+          60% { opacity: 1; }
+          100% { transform: translateX(-50%) translateY(-200px) scale(1.4); opacity: 0; }
+        }
       `}</style>
 
       <div className="ttt-app">
         <audio ref={remoteAudioRef} autoPlay style={{ display: "none" }} />
+
+        {/* FLOATING REACTIONS */}
+        {activeReactions.map(r => (
+          <div key={r.id} className="reaction-float">{r.emoji}</div>
+        ))}
 
         {/* HEADER */}
         <div className="ttt-header">
@@ -854,8 +970,31 @@ function App() {
           </div>
         </div>
 
+        {/* SETUP SCREEN */}
+        {!setupDone && !roomId && (
+          <div className="ttt-lobby">
+            <div className="lobby-card">
+              <div className="lobby-icon">👤</div>
+              <div className="lobby-title">Set Up Your Profile</div>
+              <input className="name-input" placeholder="Your name (optional)" value={myName}
+                onChange={e => setMyName(e.target.value)} maxLength={20}
+                onKeyDown={e => e.key === "Enter" && setSetupDone(true)} />
+              <div style={{width:"100%"}}>
+                <div className="lobby-subtitle" style={{marginBottom:"10px",textAlign:"left"}}>Choose your avatar</div>
+                <div className="avatar-grid">
+                  {PRESET_AVATARS.map(av => (
+                    <button key={av} className={`avatar-option${myAvatar === av ? " selected" : ""}`}
+                      onClick={() => setMyAvatar(av)}>{av}</button>
+                  ))}
+                </div>
+              </div>
+              <button className="play-btn" onClick={() => setSetupDone(true)}>Continue →</button>
+            </div>
+          </div>
+        )}
+
         {/* LOBBY */}
-        {!roomId && (
+        {setupDone && !roomId && (
           <div className="ttt-lobby">
             <div className="lobby-card">
 
@@ -930,17 +1069,26 @@ function App() {
         {symbol && (
           <div className="ttt-game">
 
+            {/* DISCONNECT BANNER */}
+            {disconnectMsg && (
+              <div className="disconnect-banner">
+                <div className="disconnect-title">Opponent disconnected</div>
+                <div className="disconnect-sub">Returning to lobby...</div>
+              </div>
+            )}
+
             {/* PLAYERS */}
             <div className="players-row">
               {["X", "O"].map(p => {
-                const cfg = PLAYER_CONFIG[p];
                 const isActive = turn === p;
                 const isMe = symbol === p;
+                const displayName = isMe ? (myName || `Player ${p}`) : (opponentName || `Player ${p}`);
+                const displayAvatar = isMe ? myAvatar : opponentAvatar;
                 return (
                   <div key={p} className={`player-card ${isActive ? `active-${p.toLowerCase()}` : ""}`}>
-                    <div className="p-avatar"><Avatar cfg={cfg} className="p-avatar-img" /></div>
+                    <div className="p-avatar" style={{fontSize:"18px",display:"flex",alignItems:"center",justifyContent:"center"}}>{displayAvatar}</div>
                     <div>
-                      <div className={`p-name ${p.toLowerCase()}`}>{cfg.label}</div>
+                      <div className={`p-name ${p.toLowerCase()}`}>{displayName}</div>
                       <div className="p-role">{isMe ? "You" : "Opponent"}</div>
                     </div>
                     {isMe ? (
@@ -985,6 +1133,13 @@ function App() {
               </div>
             </div>
 
+            {/* REACTIONS */}
+            <div className="reaction-row">
+              {["🔥","😂","👏","💀"].map(e => (
+                <button key={e} className="reaction-btn" onClick={() => sendReaction(e)}>{e}</button>
+              ))}
+            </div>
+
             {/* BOARD + CHAT */}
             <div className="main-grid">
 
@@ -1027,12 +1182,13 @@ function App() {
                 <div className="chat-messages">
                   {messages.map((msg, i) => {
                     const isMe = msg.sender === symbol;
-                    const cfg = PLAYER_CONFIG[msg.sender];
+                    const displayAvatar = isMe ? myAvatar : opponentAvatar;
+                    const displayName = isMe ? (myName || msg.sender) : (opponentName || msg.sender);
                     return (
                       <div key={i} className={`msg ${isMe ? "me" : "them"}`}>
-                        <div className="msg-av">{cfg && <Avatar cfg={cfg} className="msg-av-img" />}</div>
+                        <div className="msg-av">{displayAvatar}</div>
                         <div className="msg-body">
-                          <div className="msg-sender">{msg.sender}</div>
+                          <div className="msg-sender">{displayName}</div>
                           <div className="msg-bubble">{msg.message}</div>
                         </div>
                       </div>
